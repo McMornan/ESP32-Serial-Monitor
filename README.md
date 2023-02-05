@@ -6,6 +6,7 @@ Since the beginning of my maker career I struggled with the nonexistent debuggin
 This device may help you in seeing those serial messages which of course only occur when your circuit is not connected to your computer :)
 
 - tft screen with live config of font, orientation and baud rate
+- pause switch for pausing the output
 - telnet server to remotely monitor serial output (port 24 on ip address given to the esp32)
 
 important:
