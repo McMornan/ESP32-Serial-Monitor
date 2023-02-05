@@ -2,7 +2,7 @@
 
 simple ESP32 monitor using a tft touch screen
 
-Since the beginning of my maker career I struggled with the nonexistent debugging and remote monitoring capabilities of some chips liek the standard arduino.
+Since the beginning of my maker career I struggled with the nonexistent debugging and remote monitoring capabilities of some chips like the standard arduino.
 This device may help you in seeing those serial messages which of course only occur when your circuit is not connected to your computer :)
 
 - tft screen with live config of font, orientation and baud rate
