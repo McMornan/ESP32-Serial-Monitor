@@ -31,6 +31,7 @@
  * - level shifter 5v<->3,3v
  * - use two serial ports (would be a major overhaul, maybe with two tft displays)
  * - implement progress screen for OTA
+ * - some minor glitches in scrollcode need fixing
  *  * 
  * @version 0.1
  * @date 2023-02-05
