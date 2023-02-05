@@ -1,10 +1,52 @@
-#define IR_PIN  21
+/**
+ * @file ESP32 Serial Monitor.cpp
+ * 
+ * 
+ * @author Lars Deutsch (deutsch.lars@gmail.com)
+ * @brief this program implements a serial logger using the serial2 port of the esp32. screen orientation, font size and port speed can be configured during operation. Also the program implements a telnet server, which lets you monitor serial lines and debug information remotely
+ * (My personal version comes with an usb-c charger for a 26650 li-ion battery - but feel free to power the circuit directly via usb-c or micro usb adapter)
+ * 
+ * To make this sketch work, you need to wire the data lines of a standard tft lcd display (mine uses 480x320, 4") according to the User_Setup.h file in the tft_espi library folder of the platform io project:
+ * 
+ * #define TOUCH_CS 4     // Chip select pin (T_CS) of touch screen
+ * #define TFT_MISO 19
+ * #define TFT_MOSI 23
+ * #define TFT_SCLK 18
+ * #define TFT_CS   5  // Chip select control pin
+ * #define TFT_DC   33  // Data Command control pin
+ * #define TFT_RST  32  // Reset pin (could connect to Arduino RESET pin)
+ * #define TFT_BL   22  // LED back-light (required for M5Stack)
+ * 
+ * serial2 lines are pins 16 and 17
+ * The sketch implements ArduinoOTA and I have included a target for that. Just make sure to replace the IP adress to the one given to your esp32 by your dhcp server (make the address static in your dhcp server!)
+ * 
+ * make sure to write the /secrets file to your esp32 flash memory before startup - see my other project on github https://github.com/McMornan
+ * 
+ * a custom case for your 3d printer can be found in the sourcecode
+ * 
+ * on my bucket list for improvements:
+ * - implement WifiManager
+ * - write log to sd card of tft screen (will need a new case for this ...)
+ * - level shifter 5v<->3,3v
+ * - use two serial ports (would be a major overhaul, maybe with two tft displays)
+ * - implement progress screen for OTA
+ *  * 
+ * @version 0.1
+ * @date 2023-02-05
+ * 
+ * @copyright Copyright (c) 2023, MIT open source license
+ * 
+ */
+
+
 #define DISPLAY_ON (HIGH)
 #define DISPLAY_OFF (LOW)
 
 #include "FS.h" // for touchscreen calibration data
+#include "SPIFFS.h"
 #define CALIBRATION_FILE "/TouchCalData2"
 #define REPEAT_CAL false
+#define STORAGE_FILE "/secrets"
 
 #include <SPI.h>
 
@@ -19,57 +61,48 @@
 #include <TelnetSpy.h>
 #include <Wire.h>
 
-#if not defined(ST7796_DRIVER)
+#if not defined(ST7796_DRIVER) // check if tft_espi is configured correctly - change in header files and here for the display of your choice
   #error "wrong display driver defined!"
 #endif
 
-const char* Aurora_topic = "openhab/Aurora/POWER";
-const char* BlackKnight_topic = "zigbee2mqtt/ZigbeeSteckdose15"; //state
-
 
 /**************************** FOR OTA **************************************************/
-#define SENSORNAME "ControllerPanel Buttons" //change this to whatever you want to call your device
-
+#define SENSORNAME "SerialMonitor" //change this to whatever you want to call your device
 #define OTApassword "123" //the password you will need to enter to upload remotely via the ArduinoIDE
 int OTAport = 8266;
 
 /****************************************FOR JSON***************************************/
-const int BUFFER_SIZE = 512;// NOT SMALLER or sketch will crash
 #define MQTT_MAX_PACKET_SIZE 1024
 
-/************ WIFI and MQTT Information (CHANGE THESE FOR YOUR SETUP) ******************/
-const char* ssid = "yourwlanid"; //type your WIFI information inside the quotes
-const char* password = "secretpassword";
-const char* mqtt_server = "mqttserverip";
-const char* mqtt_username = "";
-const char* mqtt_password = "";
-const int mqtt_port = 1883;
+char strSecrets[5][20];
+/************ WIFI and MQTT Information (MUST BE WRITTEN TO FILESYSTEM BY WRITE DATA PROGRAM FIRST!) ******************/
+char* ssid = (char *)&strSecrets[0]; //type your WIFI information inside the quotes
+char* password = (char *)&strSecrets[1];
+char* mqtt_server = (char *)&strSecrets[2];
+char* mqtt_username = (char *)&strSecrets[3];
+char* mqtt_password = (char *)&strSecrets[4];
+int mqtt_port = 1883;
 TFT_eSPI tft = TFT_eSPI();
 
-#define LABEL1_FONT &FreeSansOblique12pt7b // Key label font 1
-#define LABEL2_FONT &FreeSansBold12pt7b    // Key label font 2
-// Create 6 keys for the configuration menu
+// Create 12 buttons for the configuration menu
 char keyLabel[12][15] = {"1", "2", "3","landscape","portrait","exit","9600","19200","38400","57600","115200","230400"};
 uint16_t keyColor[12] = {TFT_BLACK, TFT_BLACK, TFT_BLACK,TFT_BLUE, TFT_BLUE, TFT_RED,TFT_DARKGREY,TFT_DARKGREY,TFT_DARKGREY,TFT_DARKGREY,TFT_DARKGREY,TFT_DARKGREY};
-
 // Invoke the TFT_eSPI button class and create all the button objects
 TFT_eSPI_Button key[12];
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-bool ConnectionEstablished; // Flag for successfully handled connection
+bool ConnectionEstablished; // Flag for successfully handled telnet connection on port 24
 TelnetSpy LOG;
 
-int fontsize = 1;
-int serialspeed = 1;
+int fontsize = 1;     //font choosen by configuration
+int serialspeed = 1;  //1-5 represents the serial speed of the serial2 port
 
-
-// The scrolling area must be a integral multiple of TEXT_HEIGHT
-int TEXT_HEIGHT=16; // Height of text to be printed and scrolled
+int TEXT_HEIGHT=16; // initial height of text to be printed and scrolled
 #define BOT_FIXED_AREA 0 // Number of lines in bottom fixed area (lines counted from bottom of screen)
 #define TOP_FIXED_AREA 0 // Number of lines in top fixed area (lines counted from top of screen)
-int YMAX = 480; // Bottom of screen area
+int YMAX = 480; 
 int XMAX = 320;
 
 // The initial y coordinate of the top of the scrolling area
@@ -83,15 +116,13 @@ uint16_t fontOffset = 0;
 // Keep track of the drawing x coordinate
 uint16_t xPos = 0;
 
-// For the byte we read from the serial port
-byte data = 0;
-
+// touch calibration routine. Will be executed once if you havent done so, yet. Execute before putting the display into the 3d printed case!
 void touch_calibrate()
 {
   uint16_t calData[5];
   uint8_t calDataOK = 0;
 
-  // check file system exists
+  // check if file system exists
   if (!SPIFFS.begin()) {
     Serial.println("Formating file system");
     SPIFFS.format();
@@ -206,7 +237,7 @@ void setup_wifi() {
 
 /********************************** MQTT callback*****************************************/
 void callback(char* topic, byte* payload, unsigned int length) {
-  
+  //if you feel the need for something fancy, the system can be reconfigured on the fly by mqtt packets ...
 }
 
 String macToStr(const uint8_t* mac)
@@ -225,7 +256,7 @@ void reconnect() {
 
   int nCount = 0;
 
-  // Loop until we're reconnected
+  // Loop 10 times and then reboot
   LOG.print("Attempting MQTT connection...");
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
@@ -234,7 +265,7 @@ void reconnect() {
     LOG.print(".");
     delay(5000);
 
-    String ClientId = "ControllerPanelButtons__";
+    String ClientId = "SerialMonitor_";
     unsigned char mac[6];
     WiFi.macAddress(mac);
     ClientId += macToStr(mac);
@@ -242,12 +273,11 @@ void reconnect() {
     // Attempt to connect
     if (client.connect(ClientId.c_str())) {
       LOG.println("connected");
-      //client.subscribe(Aurora_topic);
-      
+      //client.subscribe(your_topic);
     } else {
       LOG.print("failed, rc=");
       LOG.print(client.state());
-      LOG.println(" try again in 5 seconds");
+      LOG.println(" trying again in 5 seconds");
       // Wait 5 seconds before retrying
       delay(5000);
     }
@@ -257,6 +287,7 @@ void reconnect() {
   }
 }
 
+// hardware scrolling only works in portrait mode - a shame ...
 void setupScrollArea(uint16_t TFA, uint16_t BFA) {
   tft.writecommand(0x33); // Vertical scroll definition
   tft.writedata(TFA >> 8);
@@ -274,20 +305,56 @@ void scrollAddress(uint16_t vsp) {
 }
 
 void setup(void) {
-  LOG.begin(230400);
-  Serial2.begin(9600);
+  LOG.begin(230400); // use fastest serial speed - also initializes serial0 port with 230400
+  Serial2.begin(9600); // start with 9600 baud
+
+
+  if (!SPIFFS.begin()) {
+    LOG.println("error opening file system. STOP.");
+    while(1);
+  }
+
+  // read Secrets from local filesystem
+  if (SPIFFS.exists(STORAGE_FILE)) {
+      File f = SPIFFS.open(STORAGE_FILE, "r");
+      if (f) {
+        if (f.readBytes((char *)strSecrets, 100) != 100) {
+          LOG.println("secrets file read error ! STOP."); 
+          while(1);
+        }
+        else {
+          LOG.println("secrets read successfully ...");
+          
+          LOG.print("SSID: ");
+          LOG.println(strSecrets[0]);
+          
+          LOG.print("PASSWORD: ");
+          LOG.println(strSecrets[1]);
+          
+          LOG.print("MQTT SERVER: ");
+          LOG.println(strSecrets[2]);
+          
+          LOG.print("MQTT USERNAME: ");
+          LOG.println(strSecrets[3]);
+          
+          LOG.print("MQTT PASSWORD: ");
+          LOG.println(strSecrets[4]);
+        }
+        f.close();
+      } else {
+        LOG.println("error opening secrets file. STOP.");
+        while(1);
+      }
+  }
   
   pinMode(TFT_BL, OUTPUT); // switch Display LED on
   digitalWrite(TFT_BL, DISPLAY_ON);
 
-  pinMode(21, INPUT_PULLUP); // switch Display LED on
+  pinMode(21, INPUT_PULLUP); // pause switch pin setup
 
   tft.init();
-
-  tft.setRotation(0); /* Landscape orientation */
+  tft.setRotation(0); //portrait orientation
   touch_calibrate();
-
-  
 
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
@@ -297,7 +364,7 @@ void setup(void) {
   // Hostname defaults to esp8266-[ChipID]
   ArduinoOTA.setHostname(SENSORNAME);
 
-  // No authentication by default
+  // No authentication by default, so we set a password
   ArduinoOTA.setPassword((const char *)OTApassword);
 
   ArduinoOTA.onStart([]() {
@@ -358,8 +425,9 @@ void setup(void) {
 
     tft.setTextColor(TFT_WHITE);
     tft.setTextFont(1);  
+    delay(1000);
+    tft.fillScreen(TFT_BLACK);
   }
-  
 }
 
 int configMenu(int orientation)
@@ -494,7 +562,7 @@ int scroll_line() {
 void loop(void) {
   if (WiFi.status() != WL_CONNECTED) {
     delay(1);
-    LOG.print("WIFI Disconnected. Attempting reconnection.");
+    LOG.print("WIFI disconnected. Attempting reconnection.");
     setup_wifi();
     return;
   }
@@ -558,6 +626,8 @@ void loop(void) {
     tft.println(" baud");
     delay(500);
   }
+
+  byte data = 0;
 
   while (Serial2.available()) {
     data = Serial2.read();
