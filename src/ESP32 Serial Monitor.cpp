@@ -5,6 +5,7 @@
  * @author Lars Deutsch (deutsch.lars@gmail.com)
  * @brief this program implements a serial logger using the serial2 port of the esp32. screen orientation, font size and port speed can be configured during operation. Also the program implements a telnet server, which lets you monitor serial lines and debug information remotely
  * (My personal version comes with an usb-c charger for a 26650 li-ion battery - but feel free to power the circuit directly via usb-c or micro usb adapter)
+ * The second swithc using pin 21 is used to halt serial output on the fly - when action is too fast to read ... attention: all messages received when in pause mode will be discarded !
  * 
  * To make this sketch work, you need to wire the data lines of a standard tft lcd display (mine uses 480x320, 4") according to the User_Setup.h file in the tft_espi library folder of the platform io project:
  * 
