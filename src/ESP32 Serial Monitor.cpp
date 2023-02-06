@@ -13,13 +13,14 @@
  * #define TFT_MISO 19
  * #define TFT_MOSI 23
  * #define TFT_SCLK 18
- * #define TFT_CS   5  // Chip select control pin
+ * #define TFT_CS   5  // Chip select for TFT
  * #define TFT_DC   33  // Data Command control pin
- * #define TFT_RST  32  // Reset pin (could connect to Arduino RESET pin)
+ * #define TFT_RST  32  
  * #define TFT_BL   22  // LED back-light (required for M5Stack)
  * 
  * serial2 lines are pins 16 and 17
- * The sketch implements ArduinoOTA and I have included a target for that. Just make sure to replace the IP adress to the one given to your esp32 by your dhcp server (make the address static in your dhcp server!)
+ * 
+ * The sketch implements ArduinoOTA, port 8266, default pwd: 123
  * 
  * make sure to write the /secrets file to your esp32 flash memory before startup - see my other project on github https://github.com/McMornan
  * 
@@ -27,7 +28,7 @@
  * 
  * on my bucket list for improvements:
  * - implement WifiManager
- * - write log to sd card of tft screen (will need a new case for this ...)
+ * - write log to sd card of tft screen (will need a new 3d printed case for this ...)
  * - level shifter 5v<->3,3v
  * - use two serial ports (would be a major overhaul, maybe with two tft displays)
  * - implement progress screen for OTA
