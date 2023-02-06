@@ -79,7 +79,7 @@ int OTAport = 8266;
 
 char strSecrets[5][20];
 /************ WIFI and MQTT Information (MUST BE WRITTEN TO FILESYSTEM BY WRITE DATA PROGRAM FIRST!) ******************/
-char* ssid = (char *)&strSecrets[0]; //type your WIFI information inside the quotes
+char* ssid = (char *)&strSecrets[0]; 
 char* password = (char *)&strSecrets[1];
 char* mqtt_server = (char *)&strSecrets[2];
 char* mqtt_username = (char *)&strSecrets[3];
